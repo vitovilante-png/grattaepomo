@@ -19,26 +19,148 @@
   }
   .loading i { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #2E4034; border-top-color: #C9A24A; animation: s 1s linear infinite; }
   @keyframes s { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .loading i { animation: none; } }
   .loading small { text-transform: none; letter-spacing: 0; color: #A7B1A3; font: 400 .85rem/1.4 system-ui, sans-serif; max-width: 30ch; }
+
+  /* Scanner del QR premio (solo back office) */
+  [hidden] { display: none !important; }
+  .scan {
+    position: fixed; inset: 0; z-index: 10; background: #000; color: #F2EDE1; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  .scan video { flex: 1; min-height: 0; width: 100%; object-fit: cover; background: #000; }
+  .scan .frame {
+    position: absolute; left: 50%; top: 45%; width: min(70vw, 300px); aspect-ratio: 1; transform: translate(-50%, -50%);
+    border: 3px solid #E9D08E; border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.45); pointer-events: none;
+  }
+  .scan .bar {
+    padding: 16px max(16px, env(safe-area-inset-right, 0px)) max(18px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    background: #0E1712; border-top: 1px solid #8E6E28; display: flex; flex-direction: column; gap: 10px; text-align: center;
+  }
+  .scan .msg { margin: 0; }
+  .scan .msg.err { color: #E58A78; font-weight: 600; }
+  .scan button {
+    font: inherit; font-weight: 700; padding: 13px 18px; border-radius: 12px; cursor: pointer;
+    border: 1px solid #8E6E28; background: linear-gradient(135deg, #8E6E28, #E9D08E 45%, #C9A24A 60%, #8E6E28); color: #1A1408;
+  }
+  .scan .top { position: absolute; top: max(14px, env(safe-area-inset-top, 0px)); left: 0; right: 0; text-align: center; font: 700 .85rem/1 Georgia, serif; letter-spacing: .18em; text-transform: uppercase; color: #E9D08E; text-shadow: 0 1px 4px #000; }
+  @media (prefers-reduced-motion: reduce) { .loading i { animation: none; } }
 </style>
 </head>
 <body>
   <div class="loading" id="loading"><i></i>Gratta e Pomo<small>Caricamento del gioco…</small></div>
+
+  <div class="scan" id="scan" hidden role="dialog" aria-modal="true" aria-label="Scansione del QR premio">
+    <video id="video" playsinline muted></video>
+    <div class="frame" aria-hidden="true"></div>
+    <div class="top">Inquadra il QR del premio</div>
+    <div class="bar">
+      <p class="msg" id="scanMsg">Tieni il QR del cliente dentro il riquadro dorato.</p>
+      <button type="button" id="scanClose">Annulla</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script>
     // Indirizzo della web app su Google Apps Script.
     var APP = "https://script.google.com/macros/s/AKfycbxCpWCxOo-svC6G574864YVkS9HB9S4vzW0YjYTNenVYAfy7eL_TLhyLb8Hi-BiDzY/exec";
+    var GOOGLE_ORIGINS = /^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)$/;
+
     // Passa al gioco i parametri della pagina ponte (es. ?bonus=ABC-DEF dal QR del dolce, ?p=staff per il back office).
     var params = new URLSearchParams(location.search);
+    var staff = params.get("p") === "staff";
     var dest = new URL(APP);
-    params.forEach(function (v, k) { if (k === "bonus" || k === "p") dest.searchParams.set(k, v); });
+    params.forEach(function (v, k) { if (k === "bonus" || k === "p" || k === "codice") dest.searchParams.set(k, v); });
+    if (staff) dest.searchParams.set("ponte", "1");   // il back office mostra il pulsante "Scansiona"
     var f = document.createElement("iframe");
     f.src = dest.toString();
-    f.title = params.get("p") === "staff" ? "Back office Gratta e Pomo" : "Gratta e Pomo";
+    f.title = staff ? "Back office Gratta e Pomo" : "Gratta e Pomo";
     f.allow = "clipboard-write; screen-wake-lock";
-    f.addEventListener("load", function () { document.getElementById("loading").remove(); });
+    f.addEventListener("load", function () { var l = document.getElementById("loading"); if (l) l.remove(); });
     document.body.appendChild(f);
-    if (params.get("p") === "staff") document.title = "Staff · Gratta e Pomo";
+    if (staff) document.title = "Staff · Gratta e Pomo";
+
+    /* ---------- Scanner ---------- */
+    var scan = document.getElementById("scan"), video = document.getElementById("video"), msg = document.getElementById("scanMsg");
+    var stream = null, timer = null, detector = null, canvas = document.createElement("canvas"), ctx2d = canvas.getContext("2d", { willReadFrequently: true });
+    var CODICE = /[A-Z0-9]{2,}-[A-Z0-9]{4}-[A-Z0-9]{4}/;
+
+    function chiudi() {
+      clearTimeout(timer); timer = null;
+      if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+      stream = null; video.srcObject = null;
+      scan.hidden = true;
+    }
+    function errore(t) { msg.textContent = t; msg.className = "msg err"; }
+
+    function apri() {
+      msg.textContent = "Tieni il QR del cliente dentro il riquadro dorato."; msg.className = "msg";
+      scan.hidden = false;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { errore("Questo telefono non permette di usare la fotocamera qui. Scrivi il codice a mano."); return; }
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
+        .then(function (s) {
+          stream = s; video.srcObject = s;
+          return video.play();
+        })
+        .then(function () {
+          if ("BarcodeDetector" in window) { try { detector = new BarcodeDetector({ formats: ["qr_code"] }); } catch (e) { detector = null; } }
+          leggi();
+        })
+        .catch(function () {
+          errore("Fotocamera non disponibile. Consenti l'accesso alla fotocamera per questo sito nelle impostazioni di Safari/Chrome, oppure scrivi il codice a mano.");
+        });
+    }
+
+    function trovato(testo) {
+      var m = String(testo || "").toUpperCase().match(CODICE);
+      if (!m) { msg.textContent = "Questo QR non è un codice premio. Inquadra il QR mostrato dal cliente dopo la vincita."; msg.className = "msg err"; return false; }
+      if (navigator.vibrate) navigator.vibrate(80);
+      chiudi();
+      consegna(m[0]);
+      return true;
+    }
+
+    function leggi() {
+      if (!stream) return;
+      var fatto = function () { timer = setTimeout(leggi, 180); };
+      if (video.readyState < 2) return fatto();
+      if (detector) {
+        detector.detect(video).then(function (r) { if (!(r.length && trovato(r[0].rawValue))) fatto(); }).catch(function () { detector = null; fatto(); });
+        return;
+      }
+      var w = video.videoWidth, h = video.videoHeight;
+      if (!w || !h || typeof jsQR !== "function") return fatto();
+      var s = Math.min(1, 640 / Math.max(w, h));
+      canvas.width = Math.round(w * s); canvas.height = Math.round(h * s);
+      ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height);
+      var img = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+      var r = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+      if (!(r && trovato(r.data))) fatto();
+    }
+
+    // Manda il codice al back office (che è dentro le cornici di Google). Se non risponde, ricarica con ?codice=.
+    var confermato = false;
+    function inviaATutti(win, dato, livello) {
+      try { win.postMessage(dato, "*"); } catch (e) {}
+      if (livello > 4) return;
+      try { for (var i = 0; i < win.frames.length; i++) inviaATutti(win.frames[i], dato, livello + 1); } catch (e) {}
+    }
+    function consegna(codice) {
+      confermato = false;
+      inviaATutti(f.contentWindow, { type: "gp-codice", codice: codice }, 0);
+      setTimeout(function () {
+        if (confermato) return;
+        var u = new URL(dest.toString()); u.searchParams.set("codice", codice);
+        f.src = u.toString();
+      }, 1500);
+    }
+
+    window.addEventListener("message", function (e) {
+      if (!GOOGLE_ORIGINS.test(e.origin) || !e.data) return;
+      if (e.data.type === "gp-scan" && staff) apri();
+      if (e.data.type === "gp-ok") confermato = true;
+    });
+    document.getElementById("scanClose").addEventListener("click", chiudi);
+    document.addEventListener("visibilitychange", function () { if (document.hidden && stream) chiudi(); });
   </script>
   <noscript><p style="color:#F2EDE1;text-align:center;padding:24px">Per giocare attiva JavaScript, oppure apri <a style="color:#E9D08E" href="https://script.google.com/macros/s/AKfycbxCpWCxOo-svC6G574864YVkS9HB9S4vzW0YjYTNenVYAfy7eL_TLhyLb8Hi-BiDzY/exec">questo link</a>.</p></noscript>
 </body>
