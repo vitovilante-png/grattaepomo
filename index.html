@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E1712">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gratta e Pomo">
+<title>Gratta e Pomo</title>
+<link rel="icon" href="icona.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icona-180.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #0E1712; overflow: hidden; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #0E1712; }
+  .loading {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    color: #E9D08E; font: 600 1.05rem/1.4 Georgia, "Times New Roman", serif; letter-spacing: .12em; text-transform: uppercase; text-align: center; padding: 24px;
+  }
+  .loading i { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #2E4034; border-top-color: #C9A24A; animation: s 1s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .loading i { animation: none; } }
+  .loading small { text-transform: none; letter-spacing: 0; color: #A7B1A3; font: 400 .85rem/1.4 system-ui, sans-serif; max-width: 30ch; }
+</style>
+</head>
+<body>
+  <div class="loading" id="loading"><i></i>Gratta e Pomo<small>Caricamento del gioco…</small></div>
+  <script>
+    // Indirizzo della web app su Google Apps Script.
+    var APP = "https://script.google.com/macros/s/AKfycbxCpWCxOo-svC6G574864YVkS9HB9S4vzW0YjYTNenVYAfy7eL_TLhyLb8Hi-BiDzY/exec";
+    // Passa al gioco i parametri della pagina ponte (es. ?bonus=ABC-DEF dal QR del dolce, ?p=staff per il back office).
+    var params = new URLSearchParams(location.search);
+    var dest = new URL(APP);
+    params.forEach(function (v, k) { if (k === "bonus" || k === "p") dest.searchParams.set(k, v); });
+    var f = document.createElement("iframe");
+    f.src = dest.toString();
+    f.title = params.get("p") === "staff" ? "Back office Gratta e Pomo" : "Gratta e Pomo";
+    f.allow = "clipboard-write; screen-wake-lock";
+    f.addEventListener("load", function () { document.getElementById("loading").remove(); });
+    document.body.appendChild(f);
+    if (params.get("p") === "staff") document.title = "Staff · Gratta e Pomo";
+  </script>
+  <noscript><p style="color:#F2EDE1;text-align:center;padding:24px">Per giocare attiva JavaScript, oppure apri <a style="color:#E9D08E" href="https://script.google.com/macros/s/AKfycbxCpWCxOo-svC6G574864YVkS9HB9S4vzW0YjYTNenVYAfy7eL_TLhyLb8Hi-BiDzY/exec">questo link</a>.</p></noscript>
+</body>
+</html>
