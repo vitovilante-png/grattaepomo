@@ -70,6 +70,14 @@
     var staff = params.get("p") === "staff";
     var dest = new URL(APP);
     params.forEach(function (v, k) { if (k === "bonus" || k === "p" || k === "codice" || k === "invito" || k === "torna") dest.searchParams.set(k, v); });
+    // Link unico "Torna da noi": se questo telefono ha già giocato di recente, rimostra la stessa cartolina
+    var CHIAVE_CARTA = "gp-torna-carta";
+    if (params.get("torna") && !params.get("invito")) {
+      try {
+        var salvata = JSON.parse(localStorage.getItem(CHIAVE_CARTA) || "null");
+        if (salvata && salvata.carta && salvata.fino > Date.now()) dest.searchParams.set("carta", salvata.carta);
+      } catch (e) {}
+    }
     // "Torna da noi" (link personale o link unico): schermata di caricamento crema e rossa
     if (params.get("invito") || params.get("torna")) {
       document.documentElement.style.background = document.body.style.background = "#F6EEDF";
@@ -167,6 +175,10 @@
       if (!GOOGLE_ORIGINS.test(e.origin) || !e.data) return;
       if (e.data.type === "gp-scan" && staff) apri();
       if (e.data.type === "gp-ok") confermato = true;
+      if (e.data.type === "gp-torna-carta" && typeof e.data.carta === "string" && /^[A-Z0-9-]{6,20}$/.test(e.data.carta)) {
+        var g = Math.min(365, Math.max(1, Number(e.data.giorni) || 15));
+        try { localStorage.setItem(CHIAVE_CARTA, JSON.stringify({ carta: e.data.carta, fino: Date.now() + g * 864e5 })); } catch (err) {}
+      }
     });
     document.getElementById("scanClose").addEventListener("click", chiudi);
     document.addEventListener("visibilitychange", function () { if (document.hidden && stream) chiudi(); });
