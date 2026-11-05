@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icona-180.png">
 <style>
   html, body { margin: 0; height: 100%; background: #0E1712; overflow: hidden; }
-  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #0E1712; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; }
   .loading {
     position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
     color: #E9D08E; font: 600 1.05rem/1.4 Georgia, "Times New Roman", serif; letter-spacing: .12em; text-transform: uppercase; text-align: center; padding: 24px;
@@ -69,7 +69,16 @@
     var params = new URLSearchParams(location.search);
     var staff = params.get("p") === "staff";
     var dest = new URL(APP);
-    params.forEach(function (v, k) { if (k === "bonus" || k === "p" || k === "codice") dest.searchParams.set(k, v); });
+    params.forEach(function (v, k) { if (k === "bonus" || k === "p" || k === "codice" || k === "invito") dest.searchParams.set(k, v); });
+    // Link personale "Torna da noi" (WhatsApp): schermata di caricamento crema e rossa
+    if (params.get("invito")) {
+      document.documentElement.style.background = document.body.style.background = "#F6EEDF";
+      var ld = document.getElementById("loading");
+      ld.style.color = "#C0301C";
+      ld.firstChild.nextSibling.textContent = "Torna da noi";
+      document.querySelector('meta[name="theme-color"]').setAttribute("content", "#C0301C");
+      document.title = "Torna da noi";
+    }
     if (staff) dest.searchParams.set("ponte", "1");   // il back office mostra il pulsante "Scansiona"
     var f = document.createElement("iframe");
     f.src = dest.toString();
